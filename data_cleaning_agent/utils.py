@@ -3,6 +3,8 @@
 import re
 import logging
 import warnings
+from typing import Optional
+
 import pandas as pd
 from langchain_core.output_parsers import BaseOutputParser
 
@@ -415,6 +417,49 @@ def get_applied_cleaning_summary(
         )
 
     return pd.DataFrame(rows)
+
+
+def format_agent_log(user_instructions: Optional[str], response: Optional[dict]) -> str:
+    """
+    Format the agent run details into a readable log string.
+
+    Parameters
+    ----------
+    user_instructions : str or None
+        Cleaning instructions passed to the agent.
+    response : dict or None
+        Full workflow response from the agent.
+
+    Returns
+    -------
+    str
+        Formatted log text including instructions, metadata, and generated code.
+    """
+    if not response:
+        return "No agent log available."
+
+    sections = [
+        "Data Cleaning Agent Log",
+        "=" * 40,
+        "",
+        "User Instructions:",
+        user_instructions or "None",
+        "",
+        f"Retry attempts: {response.get('retry_count', 0)}",
+    ]
+
+    error = response.get("data_cleaner_error")
+    if error:
+        sections.extend(["", f"Last error: {error}"])
+
+    log_path = response.get("data_cleaner_function_path")
+    if log_path:
+        sections.extend(["", f"Saved to: {log_path}"])
+
+    sections.extend(["", "Generated cleaning code:", "-" * 40, ""])
+    sections.append(response.get("data_cleaner_function") or "No code generated.")
+
+    return "\n".join(sections)
 
 
 def execute_agent_code(state, data_key, code_snippet_key, result_key, error_key, agent_function_name):

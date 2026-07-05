@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 from data_cleaning_agent import LightweightDataCleaningAgent
 from data_cleaning_agent.utils import (
     build_cleaning_instructions,
+    format_agent_log,
     get_applied_cleaning_summary,
     get_cleaning_options,
     get_input_data_summary,
@@ -81,5 +82,15 @@ if uploaded_file:
                 "Download Cleaned Data",
                 data=csv,
                 file_name="cleaned_data.csv",
-                mime="text/csv"
+                mime="text/csv",
             )
+
+            agent_log = format_agent_log(user_instructions, agent.response)
+            with st.expander("Agent Logs", expanded=False):
+                st.code(agent_log, language="text")
+                st.download_button(
+                    "Download Log",
+                    data=agent_log,
+                    file_name="agent_log.txt",
+                    mime="text/plain",
+                )
