@@ -88,8 +88,9 @@ poetry run streamlit run app.py
 
 Then:
 1. Upload your CSV file
-2. Click "Clean Data"
-3. Download the cleaned dataset
+2. Review the **Input Data Summary** — a per-column overview of datatype, average, min, max, and % filled
+3. Click "Clean Data"
+4. Download the cleaned dataset
 
 ### Python API
 
@@ -127,6 +128,32 @@ agent.invoke_agent(
 )
 ```
 
+### Utility Functions
+
+#### `get_input_data_summary`
+
+Build a per-column summary of a DataFrame before cleaning. Returns a table with:
+
+| Field | Description |
+|-------|-------------|
+| **Column** | Column name |
+| **Datatype** | pandas dtype |
+| **Average** | Mean value (numeric columns only) |
+| **Minimum** | Minimum value (numeric and datetime columns) |
+| **Maximum** | Maximum value (numeric and datetime columns) |
+| **% Filled** | Percentage of rows with non-null values |
+
+```python
+import pandas as pd
+from data_cleaning_agent.utils import get_input_data_summary
+
+df = pd.read_csv("your_data.csv")
+summary = get_input_data_summary(df)
+print(summary)
+```
+
+This function is used by the Streamlit app to display the input summary after upload. You can also call it directly in scripts or notebooks to inspect data quality before running the agent.
+
 ## Project Structure
 
 ```
@@ -134,7 +161,7 @@ data-cleaning-agent/
 ├── data_cleaning_agent/
 │   ├── __init__.py
 │   ├── data_cleaning_agent.py  # Main agent class
-│   └── utils.py                # Utility functions
+│   └── utils.py                # Utility functions (summaries, code execution)
 ├── app.py                      # Streamlit interface
 ├── pyproject.toml              # Dependencies configuration
 ├── poetry.lock                 # Locked dependency versions

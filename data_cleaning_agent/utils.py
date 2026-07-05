@@ -50,6 +50,54 @@ def get_dataframe_summary(df: pd.DataFrame) -> str:
     return summary.strip()
 
 
+def get_input_data_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build a per-column summary of a DataFrame for display before cleaning.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame to summarize.
+
+    Returns
+    -------
+    pd.DataFrame
+        Summary with column name, datatype, average, min, max, and fill rate.
+    """
+    total_rows = len(df)
+    rows = []
+
+    for col in df.columns:
+        series = df[col]
+        filled_pct = (series.notna().sum() / total_rows * 100) if total_rows else 0.0
+
+        if pd.api.types.is_numeric_dtype(series):
+            non_null = series.dropna()
+            average = non_null.mean() if len(non_null) else None
+            minimum = non_null.min() if len(non_null) else None
+            maximum = non_null.max() if len(non_null) else None
+        elif pd.api.types.is_datetime64_any_dtype(series):
+            non_null = series.dropna()
+            average = None
+            minimum = non_null.min() if len(non_null) else None
+            maximum = non_null.max() if len(non_null) else None
+        else:
+            average = minimum = maximum = None
+
+        rows.append(
+            {
+                "Column": col,
+                "Datatype": str(series.dtype),
+                "Average": average,
+                "Minimum": minimum,
+                "Maximum": maximum,
+                "% Filled": round(filled_pct, 2),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def execute_agent_code(state, data_key, code_snippet_key, result_key, error_key, agent_function_name):
     """
     Execute the generated agent code on the data.

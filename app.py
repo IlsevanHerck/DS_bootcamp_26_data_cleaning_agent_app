@@ -5,6 +5,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from data_cleaning_agent import LightweightDataCleaningAgent
+from data_cleaning_agent.utils import get_input_data_summary
 
 load_dotenv()
 
@@ -16,7 +17,11 @@ uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 if uploaded_file:
     # Load data
     df_raw = pd.read_csv(uploaded_file)
-    
+
+    st.subheader("Input Data Summary")
+    st.write(f"Shape: {df_raw.shape[0]} rows × {df_raw.shape[1]} columns")
+    st.dataframe(get_input_data_summary(df_raw), use_container_width=True)
+
     # Clean button
     if st.button("Clean Data"):
         with st.spinner("Cleaning..."):
