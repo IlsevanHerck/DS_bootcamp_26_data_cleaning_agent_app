@@ -3,7 +3,7 @@
 import re
 import logging
 import warnings
-from typing import Optional
+from typing import Optional, Set
 
 import pandas as pd
 from langchain_core.output_parsers import BaseOutputParser
@@ -227,6 +227,212 @@ CLEANING_OPTION_LABELS = {
     "convert_data_types": "Convert data types",
     "remove_outliers": "Remove outliers",
 }
+
+# Minimum sample sizes for reliable application of each cleaning method.
+MIN_ROWS_ANY_CLEANING = 10
+MIN_ROWS_MISSING_RATE = 20
+MIN_ROWS_IMPUTATION = 30
+MIN_NON_NULL_IMPUTATION = 5
+MIN_ROWS_DEDUP = 15
+MIN_ROWS_TEXT = 10
+MIN_ROWS_TYPE_CONVERSION = 15
+MIN_NON_NULL_TYPE_CONVERSION = 5
+MIN_ROWS_OUTLIERS = 30
+HIGH_MISSING_THRESHOLD_PCT = 40
+
+
+def _columns_with_high_missing(df: pd.DataFrame) -> Set[str]:
+    """Return columns that exceed the high-missing threshold."""
+    row_count = len(df)
+    if not row_count:
+        return set()
+
+    return {
+        col
+        for col in df.columns
+        if df[col].isna().sum() / row_count * 100 > HIGH_MISSING_THRESHOLD_PCT
+    }
+
+
+def get_cleaning_size_warnings(
+    df: pd.DataFrame, selected_option_ids: list[str]
+) -> list[dict]:
+    """
+    Return warnings when the dataset may be too small for selected cleaning steps.
+
+    Each warning includes option_id, label, message, and min_recommended rows.
+    """
+    if not selected_option_ids:
+        return []
+
+    warnings = []
+    row_count = len(df)
+    drop_high_missing_selected = "remove_high_missing_columns" in selected_option_ids
+    columns_to_be_dropped = (
+        _columns_with_high_missing(df) if drop_high_missing_selected else set()
+    )
+
+    if row_count < MIN_ROWS_ANY_CLEANING:
+        warnings.append(
+            {
+                "option_id": None,
+                "label": "Dataset size",
+                "message": (
+                    f"The dataset has only {row_count} rows. Cleaning results are "
+                    f"generally unreliable below {MIN_ROWS_ANY_CLEANING} rows."
+                ),
+                "min_recommended": MIN_ROWS_ANY_CLEANING,
+            }
+        )
+
+    for option_id in selected_option_ids:
+        label = CLEANING_OPTION_LABELS.get(option_id, option_id)
+
+        if option_id == "remove_high_missing_columns":
+            if row_count < MIN_ROWS_MISSING_RATE:
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"Missing-value rates need at least "
+                            f"{MIN_ROWS_MISSING_RATE} rows to be stable "
+                            f"(current: {row_count})."
+                        ),
+                        "min_recommended": MIN_ROWS_MISSING_RATE,
+                    }
+                )
+
+        elif option_id == "impute_missing_values":
+            if row_count < MIN_ROWS_IMPUTATION:
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"Mean and mode imputation are unreliable below "
+                            f"{MIN_ROWS_IMPUTATION} rows (current: {row_count})."
+                        ),
+                        "min_recommended": MIN_ROWS_IMPUTATION,
+                    }
+                )
+
+            sparse_columns = [
+                col
+                for col in df.columns
+                if col not in columns_to_be_dropped
+                and df[col].isna().any()
+                and df[col].notna().sum() < MIN_NON_NULL_IMPUTATION
+            ]
+            if sparse_columns:
+                cols = ", ".join(sparse_columns)
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"Column(s) {cols} have fewer than "
+                            f"{MIN_NON_NULL_IMPUTATION} observed values to impute from."
+                        ),
+                        "min_recommended": MIN_NON_NULL_IMPUTATION,
+                    }
+                )
+
+        elif option_id == "remove_duplicates":
+            duplicate_count = int(df.duplicated().sum())
+            if row_count < MIN_ROWS_DEDUP:
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"Removing duplicates from fewer than {MIN_ROWS_DEDUP} rows "
+                            f"can remove too much of the dataset (current: {row_count})."
+                        ),
+                        "min_recommended": MIN_ROWS_DEDUP,
+                    }
+                )
+            elif (
+                duplicate_count > 0
+                and row_count < MIN_ROWS_IMPUTATION
+                and duplicate_count / row_count > 0.2
+            ):
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"Removing {duplicate_count} duplicate row(s) would drop "
+                            f"more than 20% of this {row_count}-row dataset."
+                        ),
+                        "min_recommended": MIN_ROWS_IMPUTATION,
+                    }
+                )
+
+        elif option_id == "standardize_text":
+            if row_count < MIN_ROWS_TEXT:
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"Text standardization has limited value below "
+                            f"{MIN_ROWS_TEXT} rows (current: {row_count})."
+                        ),
+                        "min_recommended": MIN_ROWS_TEXT,
+                    }
+                )
+
+        elif option_id == "convert_data_types":
+            if row_count < MIN_ROWS_TYPE_CONVERSION:
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"Type conversion needs at least "
+                            f"{MIN_ROWS_TYPE_CONVERSION} rows to validate reliably "
+                            f"(current: {row_count})."
+                        ),
+                        "min_recommended": MIN_ROWS_TYPE_CONVERSION,
+                    }
+                )
+
+            sparse_columns = [
+                col
+                for col in df.select_dtypes(include=["object", "string"]).columns
+                if df[col].notna().sum() < MIN_NON_NULL_TYPE_CONVERSION
+            ]
+            if sparse_columns:
+                cols = ", ".join(sparse_columns)
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"Column(s) {cols} have fewer than "
+                            f"{MIN_NON_NULL_TYPE_CONVERSION} values to infer a type from."
+                        ),
+                        "min_recommended": MIN_NON_NULL_TYPE_CONVERSION,
+                    }
+                )
+
+        elif option_id == "remove_outliers":
+            if row_count < MIN_ROWS_OUTLIERS:
+                warnings.append(
+                    {
+                        "option_id": option_id,
+                        "label": label,
+                        "message": (
+                            f"IQR-based outlier detection needs at least "
+                            f"{MIN_ROWS_OUTLIERS} rows for stable quartiles "
+                            f"(current: {row_count})."
+                        ),
+                        "min_recommended": MIN_ROWS_OUTLIERS,
+                    }
+                )
+
+    return warnings
 
 
 def _detect_high_missing_column_removal(
